@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using AutoFixture;
 using AutoFixture.AutoMoq;
 using Emby.Server.Implementations.Updates;
+using MediaBrowser.Controller;
 using MediaBrowser.Model.Updates;
 using Moq;
 using Moq.Protected;
@@ -18,6 +19,7 @@ namespace Jellyfin.Server.Implementations.Tests.Updates
     {
         private readonly Fixture _fixture;
         private readonly InstallationManager _installationManager;
+        private readonly Mock<IServerApplicationHost> _appHostMock;
 
         public InstallationManagerTests()
         {
@@ -42,6 +44,8 @@ namespace Jellyfin.Server.Implementations.Tests.Updates
                 ConfigureMembers = true
             });
             _fixture.Inject(http);
+
+            _appHostMock = _fixture.Freeze<Mock<IServerApplicationHost>>();
             _installationManager = _fixture.Create<InstallationManager>();
         }
 
@@ -54,6 +58,34 @@ namespace Jellyfin.Server.Implementations.Tests.Updates
                 false);
 
             Assert.Equal(25, packages.Length);
+        }
+
+        [Fact]
+        public async Task GetPackages_FilterIncompatible_AppVersionHigherThanMaximumAbi_FiltersVersionOut()
+        {
+            _appHostMock.SetupGet(x => x.ApplicationVersion).Returns(new Version(10, 8, 0, 0));
+
+            PackageInfo[] packages = await _installationManager.GetPackages(
+                "Jellyfin Stable",
+                "https://repo.jellyfin.org/files/plugin/manifest_maximumabi.json",
+                true);
+
+            Assert.Single(packages);
+            Assert.Empty(packages[0].Versions);
+        }
+
+        [Fact]
+        public async Task GetPackages_FilterIncompatible_AppVersionLowerThanOrEqualMaximumAbi_KeepsVersion()
+        {
+            _appHostMock.SetupGet(x => x.ApplicationVersion).Returns(new Version(10, 6, 0, 0));
+
+            PackageInfo[] packages = await _installationManager.GetPackages(
+                "Jellyfin Stable",
+                "https://repo.jellyfin.org/files/plugin/manifest_maximumabi.json",
+                true);
+
+            Assert.Single(packages);
+            Assert.Single(packages[0].Versions);
         }
 
         [Fact]

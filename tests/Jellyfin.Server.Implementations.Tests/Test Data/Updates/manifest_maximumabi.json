@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "11111111-1111-1111-1111-111111111111",
+    "name": "MaxAbi Test",
+    "description": "Test package for maximumAbi filtering",
+    "overview": "Test package for maximumAbi filtering",
+    "owner": "jellyfin",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "changelog\n",
+        "targetAbi": "10.0.0.0",
+        "maximumAbi": "10.7.0.0",
+        "sourceUrl": "https://repo.jellyfin.org/releases/plugin/maxabi-test/maxabi-test_1.0.0.0.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2020-08-17T01:41:13Z"
+      }
+    ]
+  }
+]
