@@ -1,0 +1,20 @@
+[
+  {
+    "guid": "33333333-3333-3333-3333-333333333333",
+    "name": "TargetAbi 10.12 Test",
+    "description": "Test package for targetAbi filtering (10.12)",
+    "overview": "Test package for targetAbi filtering (10.12)",
+    "owner": "jellyfin",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "changelog\n",
+        "targetAbi": "10.12.0.0",
+        "sourceUrl": "https://repo.jellyfin.org/releases/plugin/targetabi-10-12-test/targetabi-10-12-test_1.0.0.0.zip",
+        "checksum": "00000000000000000000000000000000",
+        "timestamp": "2020-08-17T01:41:13Z"
+      }
+    ]
+  }
+]

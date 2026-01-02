@@ -123,24 +123,25 @@ namespace Emby.Server.Implementations.Updates
                             continue;
                         }
 
-                        // Only show plugins that are less than or equal to maximumAbi.
-                        if (!Version.TryParse(ver.MaximumAbi, out var maximumAbi) || _applicationHost.ApplicationVersion <= maximumAbi)
-                        {
-                            // Check the targetAbi as well
-                            if (!Version.TryParse(ver.TargetAbi, out var targetAbi))
-                            {
-                                targetAbi = minimumVersion;
-                            }
+                        var appVersion = _applicationHost.ApplicationVersion;
+                        var requiresServerUpdate = false;
 
-                            // Only show plugins that are greater than or equal to targetAbi.
-                            if (_applicationHost.ApplicationVersion >= targetAbi)
+                        if (!Version.TryParse(ver.TargetAbi, out var targetAbi))
+                        {
+                            targetAbi = minimumVersion;
+                        }
+                        else
+                        {
+                            // Only suggest updating Jellyfin within the same major/minor line.
+                            if (appVersion < targetAbi
+                                && appVersion.Major == targetAbi.Major
+                                && appVersion.Minor == targetAbi.Minor)
                             {
-                                continue;
+                                requiresServerUpdate = true;
                             }
                         }
 
-                        // Not compatible with this version so remove it.
-                        entry.Versions.Remove(ver);
+                        ver.RequiresServerUpdate = requiresServerUpdate;
                     }
                 }
 
@@ -181,7 +182,7 @@ namespace Emby.Server.Implementations.Updates
                     {
                         var existing = FilterPackages(result, package.Name, package.Id).FirstOrDefault();
 
-                        // Remove invalid versions from the valid package.
+                        // Mark versions with UI hints based on the current application version.
                         for (var i = package.Versions.Count - 1; i >= 0; i--)
                         {
                             var version = package.Versions[i];
@@ -192,21 +193,24 @@ namespace Emby.Server.Implementations.Updates
                                 await _pluginManager.PopulateManifest(package, version.VersionNumber, plugin.Path, plugin.Manifest.Status).ConfigureAwait(false);
                             }
 
-                            // Remove versions with a maximum ABI greater than the current application version.
-                            if (Version.TryParse(version.MaximumAbi, out var maximumAbi) && _applicationHost.ApplicationVersion > maximumAbi)
+                            var appVersion = _applicationHost.ApplicationVersion;
+                            var requiresServerUpdate = false;
+
+                            if (Version.TryParse(version.TargetAbi, out var targetAbi))
                             {
-                                package.Versions.RemoveAt(i);
-                                continue;
+                                // Only suggest updating Jellyfin within the same major/minor line.
+                                if (appVersion < targetAbi
+                                    && appVersion.Major == targetAbi.Major
+                                    && appVersion.Minor == targetAbi.Minor)
+                                {
+                                    requiresServerUpdate = true;
+                                }
                             }
 
-                            // Remove versions with a target ABI greater than the current application version.
-                            if (Version.TryParse(version.TargetAbi, out var targetAbi) && _applicationHost.ApplicationVersion < targetAbi)
-                            {
-                                package.Versions.RemoveAt(i);
-                            }
+                            version.RequiresServerUpdate = requiresServerUpdate;
                         }
 
-                        // Don't add a package that doesn't have any compatible versions.
+                        // Don't add a package that doesn't have any versions.
                         if (package.Versions.Count == 0)
                         {
                             continue;
@@ -535,47 +539,54 @@ namespace Emby.Server.Implementations.Updates
             using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
                 .GetAsync(new Uri(package.SourceUrl), cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
             // CA5351: Do Not Use Broken Cryptographic Algorithms
 #pragma warning disable CA5351
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var hash = Convert.ToHexString(await MD5.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
-            if (!string.Equals(package.Checksum, hash, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                _logger.LogError(
-                    "The checksums didn't match while installing {Package}, expected: {Expected}, got: {Received}",
-                    package.Name,
-                    package.Checksum,
-                    hash);
-                throw new InvalidDataException("The checksum of the received data doesn't match.");
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            // Version folder as they cannot be overwritten in Windows.
-            targetDir += "_" + package.Version;
-
-            if (Directory.Exists(targetDir))
-            {
-                try
+                var hash = Convert.ToHexString(await MD5.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
+                if (!string.Equals(package.Checksum, hash, StringComparison.OrdinalIgnoreCase))
                 {
-                    Directory.Delete(targetDir, true);
+                    _logger.LogError(
+                        "The checksums didn't match while installing {Package}, expected: {Expected}, got: {Received}",
+                        package.Name,
+                        package.Checksum,
+                        hash);
+                    throw new InvalidDataException("The checksum of the received data doesn't match.");
                 }
+
+                // Version folder as they cannot be overwritten in Windows.
+                targetDir += "_" + package.Version;
+
+                if (Directory.Exists(targetDir))
+                {
+                    try
+                    {
+                        Directory.Delete(targetDir, true);
+                    }
 #pragma warning disable CA1031 // Do not catch general exception types
-                catch
+                    catch
 #pragma warning restore CA1031 // Do not catch general exception types
-                {
-                    // Ignore any exceptions.
+                    {
+                        // Ignore any exceptions.
+                    }
                 }
+
+                stream.Position = 0;
+                ZipFile.ExtractToDirectory(stream, targetDir, true);
+
+                // Ensure we create one or populate existing ones with missing data.
+                await _pluginManager.PopulateManifest(package.PackageInfo, package.Version, targetDir, status).ConfigureAwait(false);
+
+                _pluginManager.ImportPluginFrom(targetDir);
             }
-
-            stream.Position = 0;
-            ZipFile.ExtractToDirectory(stream, targetDir, true);
-
-            // Ensure we create one or populate existing ones with missing data.
-            await _pluginManager.PopulateManifest(package.PackageInfo, package.Version, targetDir, status).ConfigureAwait(false);
-
-            _pluginManager.ImportPluginFrom(targetDir);
+            finally
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
         }
 
         private async Task<bool> InstallPackageInternal(InstallationInfo package, CancellationToken cancellationToken)

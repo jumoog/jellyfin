@@ -71,7 +71,8 @@ namespace Jellyfin.Server.Implementations.Tests.Updates
                 true);
 
             Assert.Single(packages);
-            Assert.Empty(packages[0].Versions);
+            Assert.Single(packages[0].Versions);
+            Assert.False(packages[0].Versions[0].RequiresServerUpdate);
         }
 
         [Fact]
@@ -86,6 +87,52 @@ namespace Jellyfin.Server.Implementations.Tests.Updates
 
             Assert.Single(packages);
             Assert.Single(packages[0].Versions);
+            Assert.False(packages[0].Versions[0].RequiresServerUpdate);
+        }
+
+        [Fact]
+        public async Task GetPackages_FilterIncompatible_AppVersionLowerThanTargetAbi_MarksVersionNotInstallable()
+        {
+            _appHostMock.SetupGet(x => x.ApplicationVersion).Returns(new Version(10, 11, 2, 0));
+
+            PackageInfo[] packages = await _installationManager.GetPackages(
+                "Jellyfin Stable",
+                "https://repo.jellyfin.org/files/plugin/manifest_targetabi.json",
+                true);
+
+            Assert.Single(packages);
+            Assert.Single(packages[0].Versions);
+            Assert.True(packages[0].Versions[0].RequiresServerUpdate);
+        }
+
+        [Fact]
+        public async Task GetPackages_FilterIncompatible_AppVersionGreaterThanOrEqualTargetAbi_MarksVersionInstallable()
+        {
+            _appHostMock.SetupGet(x => x.ApplicationVersion).Returns(new Version(10, 11, 5, 0));
+
+            PackageInfo[] packages = await _installationManager.GetPackages(
+                "Jellyfin Stable",
+                "https://repo.jellyfin.org/files/plugin/manifest_targetabi.json",
+                true);
+
+            Assert.Single(packages);
+            Assert.Single(packages[0].Versions);
+            Assert.False(packages[0].Versions[0].RequiresServerUpdate);
+        }
+
+        [Fact]
+        public async Task GetPackages_FilterIncompatible_AppVersionLowerThanTargetAbi_DifferentMinor_DoesNotSuggestServerUpdate()
+        {
+            _appHostMock.SetupGet(x => x.ApplicationVersion).Returns(new Version(10, 11, 9, 0));
+
+            PackageInfo[] packages = await _installationManager.GetPackages(
+                "Jellyfin Stable",
+                "https://repo.jellyfin.org/files/plugin/manifest_targetabi_10_12.json",
+                true);
+
+            Assert.Single(packages);
+            Assert.Single(packages[0].Versions);
+            Assert.False(packages[0].Versions[0].RequiresServerUpdate);
         }
 
         [Fact]
