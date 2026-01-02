@@ -42,7 +42,8 @@ namespace Jellyfin.Server.Implementations.Tests.Plugins
             var pluginManager = new PluginManager(new NullLogger<PluginManager>(), null!, null!, null!, new Version(1, 0));
             var manifest = new PluginManifest()
             {
-                Version = "1.0"
+                Version = "1.0",
+                MaximumAbi = new Version(1, 2, 3).ToString()
             };
 
             Assert.True(pluginManager.SaveManifest(manifest, _pluginPath));
@@ -63,6 +64,37 @@ namespace Jellyfin.Server.Implementations.Tests.Plugins
             Assert.Equal(manifest.AutoUpdate, res.Manifest.AutoUpdate);
             Assert.Equal(manifest.ImagePath, res.Manifest.ImagePath);
             Assert.Equal(manifest.Assemblies, res.Manifest.Assemblies);
+            Assert.Equal(manifest.MaximumAbi, res.Manifest.MaximumAbi);
+        }
+
+        [Fact]
+        public async Task PopulateManifest_ExistingMetafile_PreservesMaximumAbi_WhenSetLocally()
+        {
+            var packageInfo = GenerateTestPackage();
+
+            // Local manifest should override package maximumAbi when non-empty.
+            var localMaximumAbi = new Version(9, 9, 9).ToString();
+            packageInfo.Versions[0].MaximumAbi = new Version(10, 0, 0).ToString();
+
+            var localManifest = new PluginManifest
+            {
+                Id = packageInfo.Id,
+                Version = packageInfo.Versions[0].Version,
+                MaximumAbi = localMaximumAbi,
+                Assemblies = Array.Empty<string>()
+            };
+
+            var metafilePath = Path.Combine(_pluginPath, "meta.json");
+            await File.WriteAllTextAsync(metafilePath, JsonSerializer.Serialize(localManifest, _options));
+
+            var pluginManager = new PluginManager(new NullLogger<PluginManager>(), null!, null!, _tempPath, new Version(1, 0));
+            await pluginManager.PopulateManifest(packageInfo, new Version(1, 0), _pluginPath, PluginStatus.Active);
+
+            var resultBytes = await File.ReadAllBytesAsync(metafilePath);
+            var result = JsonSerializer.Deserialize<PluginManifest>(resultBytes, _options);
+
+            Assert.NotNull(result);
+            Assert.Equal(localMaximumAbi, result!.MaximumAbi);
         }
 
         /// <summary>
@@ -188,7 +220,8 @@ namespace Jellyfin.Server.Implementations.Tests.Plugins
                 Timestamp = DateTimeOffset.Parse(packageInfo.Versions[0].Timestamp!, CultureInfo.InvariantCulture).UtcDateTime,
                 Changelog = packageInfo.Versions[0].Changelog!,
                 Version = new Version(1, 0).ToString(),
-                ImagePath = string.Empty
+                ImagePath = string.Empty,
+                MaximumAbi = packageInfo.Versions[0].MaximumAbi!
             };
 
             var metafilePath = Path.Combine(_pluginPath, "meta.json");
@@ -224,7 +257,8 @@ namespace Jellyfin.Server.Implementations.Tests.Plugins
                 Timestamp = DateTimeOffset.Parse(packageInfo.Versions[0].Timestamp!, CultureInfo.InvariantCulture).UtcDateTime,
                 Changelog = packageInfo.Versions[0].Changelog!,
                 Version = packageInfo.Versions[0].Version,
-                ImagePath = string.Empty
+                ImagePath = string.Empty,
+                MaximumAbi = packageInfo.Versions[0].MaximumAbi!
             };
 
             var pluginManager = new PluginManager(new NullLogger<PluginManager>(), null!, null!, null!, new Version(1, 0));
@@ -302,6 +336,7 @@ namespace Jellyfin.Server.Implementations.Tests.Plugins
             var versionInfo = fixture.Create<VersionInfo>();
             versionInfo.Version = new Version(1, 0).ToString();
             versionInfo.Timestamp = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            versionInfo.MaximumAbi = new Version(99, 0, 0).ToString();
 
             var packageInfo = fixture.Create<PackageInfo>();
             packageInfo.Versions = new[] { versionInfo };
