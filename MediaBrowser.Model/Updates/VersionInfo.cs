@@ -80,5 +80,16 @@ namespace MediaBrowser.Model.Updates
         /// <value>The target maximum ABI version.</value>
         [JsonPropertyName("maximumAbi")]
         public string? MaximumAbi { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether Jellyfin should be updated to install this version.
+        /// </summary>
+        /// <remarks>
+        /// This flag is intended for UI messaging.
+        /// It is only set when the current Jellyfin version is lower than <see cref="TargetAbi"/> within the
+        /// same major/minor version line (e.g. 10.11.x -> 10.11.y).
+        /// </remarks>
+        [JsonPropertyName("requiresServerUpdate")]
+        public bool RequiresServerUpdate { get; set; }
     }
 }
